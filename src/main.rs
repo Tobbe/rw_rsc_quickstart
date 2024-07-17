@@ -28,7 +28,7 @@ fn main() {
         fs::remove_dir_all(target_dir).expect("Failed to remove temp dir");
     }
 
-    let latest_rw_canary = "8.0.0-canary.904";
+    let latest_rw_canary = get_latest_canary("@redwoodjs/core");
 
     let package_jsons = glob::glob("template/**/package.json").expect("Failed to glob");
 
@@ -52,7 +52,7 @@ fn main() {
 
         for (name, value) in dependencies.iter_mut() {
             if name.starts_with("@redwoodjs/") {
-                *value = Value::String(latest_rw_canary.into());
+                *value = Value::String(latest_rw_canary.clone());
             }
         }
 
@@ -63,7 +63,7 @@ fn main() {
 
         for (name, value) in dev_dependencies.iter_mut() {
             if name.starts_with("@redwoodjs/") {
-                *value = Value::String(latest_rw_canary.into());
+                *value = Value::String(latest_rw_canary.clone());
             }
         }
 
@@ -78,4 +78,12 @@ fn get_tempdir() -> PathBuf {
         .tempdir()
         .unwrap()
         .into_path()
+}
+
+fn get_latest_canary<S: Into<String>>(package: S) -> String {
+    let url = "https://registry.npmjs.org/".to_string() + &package.into();
+    let resp = reqwest::blocking::get(url).expect("request failed");
+    let packument: serde_json::Value = resp.json().expect("body invalid");
+
+    packument.pointer("/dist-tags/canary").unwrap().to_string()
 }
