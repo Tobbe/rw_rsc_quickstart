@@ -1,24 +1,34 @@
+use clap::Parser;
 use serde_json::Value;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
 
-const VERBOSE: bool = false;
+/// Quick start for RedwoodJS with React Server Components
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    /// Show verbose output
+    #[arg(short, long)]
+    verbose: bool,
+    /// Where you want to create the project
+    #[arg(value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    installation_dir: String,
+}
 
-// TODO: Use clap to parse args
-//  -v, --verbose
-//  -h, --help
-//  positional arg: name of the template directory
 fn main() {
-    if !Path::new("template").exists() {
+    let args = Args::parse();
+    println!("{:?}", args);
+
+    if !Path::new(&args.installation_dir).exists() {
         let url = "https://github.com/redwoodjs/redwood/archive/refs/heads/main.zip";
         let resp = reqwest::blocking::get(url).expect("request failed");
         let archive = resp.bytes().expect("body invalid");
 
         let target_dir = get_tempdir();
 
-        if VERBOSE {
+        if args.verbose {
             println!("Extracting into {}", target_dir.to_string_lossy());
         }
 
@@ -31,22 +41,26 @@ fn main() {
             .join("__fixtures__")
             .join("test-project-rsc-kitchen-sink");
 
-        fs::rename(from, "template").expect("Failed to rename");
+        fs::rename(from, &args.installation_dir).expect("Failed to rename");
 
         fs::remove_dir_all(target_dir).expect("Failed to remove temp dir");
     }
 
     let latest_rw_canary = get_latest_canary("@redwoodjs/core");
-    if VERBOSE {
+    if args.verbose {
         println!("Latest canary: {latest_rw_canary}");
     }
 
     // TODO: Just hard-code the paths. We know what they are.
-    let package_jsons = glob::glob("template/**/package.json").expect("Failed to glob");
+    let package_jsons =
+        glob::glob(&format!("{}/**/package.json", args.installation_dir)).expect("Failed to glob");
 
-    update_package_jsons(package_jsons, latest_rw_canary);
+    update_package_jsons(package_jsons, latest_rw_canary, args.verbose);
 
-    println!("Done! You can now run `yarn install` in the `template` directory.");
+    println!(
+        "Done! You can now run `yarn install` in the `{}` directory.",
+        args.installation_dir
+    );
 }
 
 fn get_tempdir() -> PathBuf {
@@ -71,11 +85,11 @@ fn get_latest_canary<S: Into<String>>(package: S) -> String {
         .to_owned()
 }
 
-fn update_package_jsons(package_jsons: glob::Paths, latest_rw_canary: String) {
+fn update_package_jsons(package_jsons: glob::Paths, latest_rw_canary: String, verbose: bool) {
     for entry in package_jsons {
         let path = entry.expect("Failed to get path");
 
-        if VERBOSE {
+        if verbose {
             println!(
                 "Updating {} to use latest RW canary version",
                 path.to_string_lossy()
