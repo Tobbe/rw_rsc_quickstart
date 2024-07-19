@@ -4,8 +4,10 @@ use semver_rs::satisfies;
 use serde_json::Value;
 use std::fs;
 use std::io::Cursor;
+use std::iter::Peekable;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::Chars;
 use std::sync::RwLock;
 
 lazy_static! {
@@ -100,7 +102,8 @@ fn main() {
     exec_in("git commit -am 'Initial commit'", &args.installation_dir);
 
     println!(
-        "Done! You can now run `yarn install` in the `{}` directory.",
+        "Done! You can now go into the `{}` directory and run `yarn rw build \
+        -v && yarn rw serve` to run the example app.",
         args.installation_dir
     );
 }
@@ -293,11 +296,11 @@ fn exec_with_optional_cwd<S: Into<String>>(cmd: S, cwd_option: Option<&Path>) ->
     // rustc knows that cmd_string is a String, but the Rust language server
     // doesn't, so I'm helping it along here by explicitly annotating the type
     let cmd_string: String = cmd.into();
-    let mut cmd_parts = cmd_string.split_whitespace();
-    let cmd = cmd_parts.next().expect("No command provided");
+    let cmd_parts = parse_command(&cmd_string).expect("Failed to parse command");
+    let cmd = cmd_parts.first().expect("No command provided");
 
     let mut command = std::process::Command::new(cmd);
-    command.args(cmd_parts);
+    command.args(&cmd_parts[1..]);
 
     if let Some(cwd) = cwd_option {
         command.current_dir(cwd);
@@ -313,9 +316,65 @@ fn exec_with_optional_cwd<S: Into<String>>(cmd: S, cwd_option: Option<&Path>) ->
     let output = String::from_utf8(output.stdout).expect("Failed to parse output");
 
     if Config::is_verbose() {
-        println!("`{cmd}` output:");
+        println!("`{cmd_string}` output:");
         println!("{output}");
     }
 
     output
+}
+
+fn parse_command(cmd: &str) -> Result<Vec<String>, String> {
+    let mut result = Vec::new();
+    let mut chars = cmd.chars().peekable();
+
+    while let Some(c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            let arg = parse_argument(&mut chars)?;
+            // TODO: If we ever support very verbose (-vv) output, we could
+            // print this
+            // println!("Parsed argument: {arg}");
+            result.push(arg);
+        }
+    }
+
+    Ok(result)
+}
+
+fn parse_argument(chars: &mut Peekable<Chars>) -> Result<String, String> {
+    let mut arg = String::new();
+    let mut in_quotes = false;
+
+    while let Some(&c) = chars.peek() {
+        match c {
+            '"' => {
+                chars.next();
+                in_quotes = !in_quotes;
+            }
+            '\'' => {
+                chars.next();
+                in_quotes = !in_quotes;
+            }
+            '\\' => {
+                chars.next();
+                if let Some(escaped_char) = chars.next() {
+                    arg.push(escaped_char);
+                } else {
+                    return Err("Trailing escape character".into());
+                }
+            }
+            _ if c.is_whitespace() && !in_quotes => break,
+            _ => {
+                arg.push(c);
+                chars.next();
+            }
+        }
+    }
+
+    if in_quotes {
+        return Err("Unclosed quote".into());
+    }
+
+    Ok(arg)
 }
